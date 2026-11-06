@@ -4,8 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-// добавил из technical-requirement.md
-// ===========================================
+// Добавил константу для числа 10
+#define CSTACK_INITIAL_CAPACITY 10u
+
 struct node
 {
     const struct node* prev;
@@ -27,12 +28,6 @@ struct stack_entries_table
     stack_entry_t* entries;
 };
 
-/*
- *Такой момент: я решил сделать таблицу статичной. Исходя из лекции 3 ноября
-сделал вывод, что таблицу стоило бы сделать статической, чтобы ограничить к ней
-доступ "из вне" (external linkage). Если я всё таки не прав по этому поводу -
-прошу сообщить :)
-*/
 static struct stack_entries_table g_table = {0u, NULL};
 
 //==============================================================================
@@ -47,39 +42,38 @@ hstack_t stack_new(void)
         {
             g_table.entries[index].reserved = 1;
             g_table.entries[index].stack = NULL;
-            break;
+            return (hstack_t)index;
         }
     }
-    hstack_t handler = (hstack_t)(index);
 
-    // если среди вхождений не нашли свободное - перевыделяем память и добавляем
-    // новые вхождения
-    if (index >= g_table.size)
+    // если свободных вхождений не нашли — перевыделяем память и добавляем новые
+    unsigned int old_size = g_table.size;
+    unsigned int new_size =
+        old_size == 0 ? CSTACK_INITIAL_CAPACITY : old_size * 2u;
+
+    // realloc перевыделит память, если закончились слоты, или выделит её,
+    // если таблицы ещё не было
+    stack_entry_t* new_entries =
+        realloc(g_table.entries, (size_t)new_size * sizeof(*new_entries));
+
+    if (new_entries == NULL)
     {
-        unsigned int old_size = g_table.size;
-        unsigned int new_size = old_size == 0 ? 10u : old_size * 2u;
-
-        // realloc перевыделит память если закончили слоты или выделит, если их
-        // еще не было
-        stack_entry_t* new_entries =
-            realloc(g_table.entries, (size_t)new_size * sizeof(*new_entries));
-        if (new_entries == NULL)
-        {
-            return (hstack_t)-1;
-        }
-        g_table.entries = new_entries;
-        g_table.size = new_size;
-
-        for (size_t i = old_size; i < new_size; ++i)
-        {
-            new_entries[i].reserved = 0;
-            new_entries[i].stack = NULL;
-        }
-
-        new_entries[index].reserved = 1;
-        new_entries[index].stack = NULL;
+        return (hstack_t)-1;
     }
-    return handler;
+
+    g_table.entries = new_entries;
+    g_table.size = new_size;
+
+    for (size_t i = old_size; i < new_size; ++i)
+    {
+        new_entries[i].reserved = 0;
+        new_entries[i].stack = NULL;
+    }
+
+    new_entries[index].reserved = 1;
+    new_entries[index].stack = NULL;
+
+    return (hstack_t)index;
 }
 
 void stack_free(const hstack_t hstack)
@@ -105,28 +99,23 @@ void stack_free_all(void)
     if (g_table.entries == NULL || g_table.size == 0)
         return;
 
-    // проверка: если все вхождения пустые - не нужно ничего делать
-    // если убрать проверку - сработает блок из конца функции
-    unsigned int FLAG = 1;
-    for (size_t i = 0u; i < g_table.size; ++i)
-    {
-        if (g_table.entries[i].reserved == 1)
-        {
-            FLAG = 0;
-        }
-    }
-    if (FLAG == 1)
-        return;
+    int has_active_stacks = 0;
 
     for (size_t i = 0u; i < g_table.size; ++i)
     {
         if (g_table.entries[i].reserved != 0)
+        {
+            has_active_stacks = 1;
             stack_free((hstack_t)i);
+        }
     }
 
-    free(g_table.entries);
-    g_table.entries = NULL;
-    g_table.size = 0;
+    if (has_active_stacks)
+    {
+        free(g_table.entries);
+        g_table.entries = NULL;
+        g_table.size = 0;
+    }
 }
 
 int stack_valid_handler(const hstack_t hstack)
